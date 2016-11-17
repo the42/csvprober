@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"io"
+	"math"
 	"sort"
 )
 
@@ -14,25 +15,21 @@ var DefaultDelims = []rune{',', ';', '#', '|'}
 // This many records will be tried to find an optimal CSV Reader definition
 var ProbeRecords = 200
 
-type boxwhisker struct {
+type statresults struct {
 	Min, LQ, Median, UQ, Max int
+	Mean, Stddev             float64
 }
 
 // This struct contains CSV heterogenity information about parsed CSV data
 type CSVprobability struct {
 	Parsedrecords int  // how many CSV records have been actually parsed?
 	Delimiter     rune // What delimiter has been used?
-	boxwhisker         // statistical data concerning the attempts to parse CSV data
+	statresults        // statistical data concerning the attempts to parse CSV data
 }
 
 type CSVProbeResult struct {
 	CSVprobability []CSVprobability
 	ActualLines    int // How many lines did the inspected CSV data actually contain?
-}
-
-type CSVProber struct {
-	RecordstoProbe int    // How many records should be inspected to gather statistical data?
-	Delimiters     []rune // array of delimiting characters which should be tried when parsing CSV data
 }
 
 // sort interface
@@ -45,61 +42,41 @@ func (p csvprobabilityslice) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
 // is more "compact" and more likely to be sane, well-formed CSV data. This is
 // done by inspecting the Box and Whisker data on the number of records read.
 func (p csvprobabilityslice) Less(i, j int) bool {
-	a := p[i]
-	b := p[j]
+	// calculate the coefficient of variation http://en.wikipedia.org/wiki/Coefficient_of_variation
+	cva := p[i].Stddev / p[i].Mean
+	cvb := p[j].Stddev / p[j].Mean
 
-	if a.Max == a.Min {
-		if b.Max == b.Min {
-			if a.Parsedrecords > b.Parsedrecords {
-				return false
-			}
-			return true
-		} else {
-			return false
-		}
-	}
-
-	if a.Max == a.UQ {
-		if b.Max == b.UQ {
-			if a.Parsedrecords > b.Parsedrecords {
-				return false
-			}
-			return true
-		} else {
-			return false
-		}
-	}
-
-	if a.UQ == a.LQ {
-		if b.UQ == b.UQ {
-			if a.Parsedrecords > b.Parsedrecords {
-				return false
-			}
-			return true
-		} else {
-			return false
-		}
-	}
-
-	if a.UQ-a.LQ < b.UQ-b.LQ {
-		return false
-	}
-
-	return true
+	return cva > cvb
 }
 
 // destructively sort the data int-array and return Box and Whisker information
 // http://en.wikipedia.org/wiki/Box_and_whisker_plot
 // function will panic if len(data) == 0
-func genboxwhisker(data []int) boxwhisker {
+func genstatdata(data []int) statresults {
 	sort.IntSlice(data).Sort()
-	return boxwhisker{
-		Min:    data[0],
-		LQ:     data[len(data)/4],
-		Median: data[len(data)/2],
-		UQ:     data[len(data)/4*3],
-		Max:    data[len(data)-1],
+
+	res := statresults{}
+
+	// calculate data for Box and Whisker
+	res.Min = data[0]
+	res.LQ = data[len(data)/4]
+	res.Median = data[len(data)/2]
+	res.UQ = data[len(data)/4*3]
+	res.Max = data[len(data)-1]
+
+	var sum, squaresum int
+	for _, item := range data {
+		sum += item
+		squaresum += item * item
 	}
+	res.Mean = float64(sum) / float64(len(data))
+	res.Stddev = math.Sqrt(float64(squaresum)/float64(len(data)) - res.Mean*res.Mean)
+	return res
+}
+
+type CSVProber struct {
+	RecordstoProbe int    // How many records should be inspected to gather statistical data?
+	Delimiters     []rune // array of delimiting characters which should be tried when parsing CSV data
 }
 
 // This function accepts an io.Reader which will be used to read CSV data from.
@@ -142,7 +119,7 @@ func (p *CSVProber) Probe(r io.Reader) (*CSVProbeResult, error) {
 		if len(numrecords) > 0 {
 			prob = append(prob, CSVprobability{
 				Parsedrecords: len(numrecords),
-				boxwhisker:    genboxwhisker(numrecords),
+				statresults:   genstatdata(numrecords),
 				Delimiter:     delim,
 			})
 		}
