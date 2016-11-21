@@ -46,7 +46,7 @@ func (p csvprobabilityslice) Less(i, j int) bool {
 	cva := p[i].Stddev / p[i].Mean
 	cvb := p[j].Stddev / p[j].Mean
 
-	return cva > cvb
+	return cva < cvb
 }
 
 // destructively sort the data int-array and return Box and Whisker information
