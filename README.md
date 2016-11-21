@@ -1,6 +1,9 @@
 csvprober
 =========
 
-Functions of this package:
+Calculates homogeneity information about a CSV file
 
-* return homogeneity data about a CSV file
+Documentation
+-------------
+
+See documentation at [GoDoc](https://godoc.org/github.com/the42/csvprober)
